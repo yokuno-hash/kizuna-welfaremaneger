@@ -6,7 +6,6 @@ import {
   Brain,
   Sparkles,
   Loader2,
-  User,
   ChevronRight,
   TrendingUp,
   AlertCircle,
@@ -14,15 +13,16 @@ import {
   Download,
   ClipboardList,
   FileDown,
+  Briefcase,
+  Heart,
 } from "lucide-react";
-import { generateMonitoringPDF } from "@/lib/pdf";
 
 type DiaryEntry = {
   id: string;
   recorded_at: string;
   attendance: string;
+  role: string | null;
   ratings: Record<string, string>;
-  comments: Record<string, string>;
   staff_name: string;
 };
 
@@ -32,6 +32,31 @@ type MonitoringReport = {
   nextGoal: string;
 };
 
+type DayGroup = {
+  date: string;
+  work: DiaryEntry | null;
+  life: DiaryEntry | null;
+};
+
+function groupByDateAndRole(diaries: DiaryEntry[]): DayGroup[] {
+  const map: Record<string, DayGroup> = {};
+  for (const d of diaries) {
+    const date = new Date(d.recorded_at).toLocaleDateString("ja-JP", {
+      month: "numeric",
+      day: "numeric",
+      weekday: "short",
+    });
+    if (!map[date]) map[date] = { date, work: null, life: null };
+    const role = d.role ?? (d.ratings?.role as string | undefined) ?? "work";
+    if (role === "life") {
+      map[date].life = d;
+    } else {
+      map[date].work = d;
+    }
+  }
+  return Object.values(map);
+}
+
 export default function MonitoringPage() {
   const supabase = createClient();
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -40,6 +65,7 @@ export default function MonitoringPage() {
   const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
   const [loadingDiaries, setLoadingDiaries] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
   const [report, setReport] = useState<MonitoringReport | null>(null);
 
   useEffect(() => {
@@ -74,11 +100,11 @@ export default function MonitoringPage() {
 
     const { data } = await supabase
       .from("diaries")
-      .select("id, recorded_at, attendance, ratings, comments, staff_name")
+      .select("id, recorded_at, attendance, role, ratings, staff_name")
       .eq("facility_id", facilityId)
       .eq("client_name", name)
       .order("recorded_at", { ascending: false })
-      .limit(30);
+      .limit(60);
 
     setDiaries((data as DiaryEntry[]) ?? []);
     setLoadingDiaries(false);
@@ -93,8 +119,10 @@ export default function MonitoringPage() {
       .filter((d) => d.attendance !== "●")
       .map((d) => {
         const date = new Date(d.recorded_at).toLocaleDateString("ja-JP");
+        const roleLabel =
+          (d.role ?? "work") === "life" ? "生活支援員" : "職業指導員";
         const comment = d.ratings?.eval ?? "";
-        return `${date}（${d.staff_name}）: ${comment}`;
+        return `${date}（${d.staff_name}・${roleLabel}）: ${comment}`;
       })
       .join("\n");
 
@@ -114,18 +142,20 @@ export default function MonitoringPage() {
     }
   };
 
-  const attendedCount = diaries.filter((d) => d.attendance !== "●").length;
-
   const handleExportCSV = () => {
     if (!selectedClient || diaries.length === 0) return;
-    const header = ["日付", "利用者", "出欠", "スタッフ", "コメント"];
-    const rows = diaries.map((d) => [
-      new Date(d.recorded_at).toLocaleDateString("ja-JP"),
-      selectedClient,
-      d.attendance,
-      d.staff_name,
-      `"${(d.ratings?.eval ?? "").replace(/"/g, '""')}"`,
-    ]);
+    const header = ["日付", "役職", "利用者", "出欠", "スタッフ", "コメント"];
+    const rows = diaries.map((d) => {
+      const roleLabel = (d.role ?? "work") === "life" ? "生活支援員" : "職業指導員";
+      return [
+        new Date(d.recorded_at).toLocaleDateString("ja-JP"),
+        roleLabel,
+        selectedClient,
+        d.attendance,
+        d.staff_name,
+        `"${(d.ratings?.eval ?? "").replace(/"/g, '""')}"`,
+      ];
+    });
     const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -136,13 +166,62 @@ export default function MonitoringPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPDF = async () => {
+    if (!selectedClient || !report || !facilityId) return;
+    setPdfGenerating(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+      const res = await fetch("/api/generate-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "monitoring_report",
+          clientName: selectedClient,
+          facilityId,
+          periodStart: sixMonthsAgo.toISOString().slice(0, 10),
+          periodEnd: today,
+          additionalData: {
+            preGenerated: {
+              achievement: report.achievement,
+              issues: report.issues,
+              nextGoal: report.nextGoal,
+            },
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("PDF生成失敗");
+      const blob = await res.blob();
+      const cd = res.headers.get("content-disposition") ?? "";
+      const m = cd.match(/filename\*=UTF-8''(.+)/);
+      const filename = m ? decodeURIComponent(m[1]) : `モニタリング報告書_${selectedClient}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("PDF生成に失敗しました");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  const attendedCount = diaries.filter((d) => d.attendance !== "●").length;
+  const dayGroups = groupByDateAndRole(diaries);
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center gap-3">
         <Brain size={22} className="text-indigo-500" />
         <div>
           <h2 className="text-2xl font-bold text-slate-800">AIモニタリング評価</h2>
-          <p className="text-sm text-slate-500 mt-0.5">日報をもとに個別支援計画のモニタリング評価を自動生成します</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            職業指導員・生活支援員の2名評価をもとに個別支援計画モニタリングを自動生成します
+          </p>
         </div>
       </div>
 
@@ -199,23 +278,19 @@ export default function MonitoringPage() {
                     <h3 className="text-sm font-bold text-slate-700">
                       {selectedClient}さんの日報記録
                     </h3>
+                    <span className="text-xs text-slate-400">
+                      {diaries.length}件（出席 {attendedCount}日）
+                    </span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {!loadingDiaries && (
-                      <span className="text-xs text-slate-400">
-                        {diaries.length}件（出席 {attendedCount}日）
-                      </span>
-                    )}
-                    {diaries.length > 0 && (
-                      <button
-                        onClick={handleExportCSV}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
-                      >
-                        <FileDown size={13} />
-                        CSV出力
-                      </button>
-                    )}
-                  </div>
+                  {diaries.length > 0 && (
+                    <button
+                      onClick={handleExportCSV}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                    >
+                      <FileDown size={13} />
+                      CSV
+                    </button>
+                  )}
                 </div>
 
                 {loadingDiaries ? (
@@ -225,30 +300,70 @@ export default function MonitoringPage() {
                 ) : diaries.length === 0 ? (
                   <p className="text-center py-10 text-slate-400 text-sm">日報がまだありません</p>
                 ) : (
-                  <ul className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                    {diaries.map((d) => {
-                      const date = new Date(d.recorded_at).toLocaleDateString("ja-JP", {
-                        month: "numeric", day: "numeric", weekday: "short",
-                      });
-                      const comment = d.ratings?.eval ?? "（コメントなし）";
-                      const absent = d.attendance === "●";
-                      return (
-                        <li key={d.id} className="px-5 py-3 flex gap-3">
-                          <span className={`text-xs font-semibold mt-0.5 shrink-0 ${absent ? "text-slate-300" : "text-slate-500"}`}>
-                            {date}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            {absent ? (
-                              <span className="text-xs text-slate-300">欠席</span>
+                  <div className="max-h-64 overflow-y-auto">
+                    {/* ロール凡例 */}
+                    <div className="flex gap-4 px-5 py-2 bg-slate-50 border-b border-slate-100">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                        <Briefcase size={11} />
+                        職業指導員
+                      </span>
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
+                        <Heart size={11} />
+                        生活支援員
+                      </span>
+                    </div>
+
+                    {/* 日付ごとのwork/lifeペア */}
+                    {dayGroups.map((g) => (
+                      <div key={g.date} className="border-b border-slate-100 last:border-0">
+                        <div className="px-5 py-1.5 bg-slate-50 text-xs font-semibold text-slate-500">
+                          {g.date}
+                        </div>
+                        <div className="grid grid-cols-2 divide-x divide-slate-100">
+                          {/* 職業指導員 */}
+                          <div className="px-4 py-2.5">
+                            {g.work ? (
+                              g.work.attendance === "●" ? (
+                                <span className="text-xs text-slate-300">欠席</span>
+                              ) : (
+                                <>
+                                  <p className="text-xs text-blue-700 font-semibold mb-0.5 flex items-center gap-1">
+                                    <Briefcase size={10} />
+                                    {g.work.staff_name}
+                                  </p>
+                                  <p className="text-xs text-slate-600 leading-snug line-clamp-2">
+                                    {g.work.ratings?.eval ?? "（コメントなし）"}
+                                  </p>
+                                </>
+                              )
                             ) : (
-                              <p className="text-sm text-slate-700 leading-snug line-clamp-2">{comment}</p>
+                              <span className="text-xs text-slate-300">未記録</span>
                             )}
-                            <p className="text-xs text-slate-400 mt-0.5">{d.staff_name}</p>
                           </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                          {/* 生活支援員 */}
+                          <div className="px-4 py-2.5">
+                            {g.life ? (
+                              g.life.attendance === "●" ? (
+                                <span className="text-xs text-slate-300">欠席</span>
+                              ) : (
+                                <>
+                                  <p className="text-xs text-indigo-700 font-semibold mb-0.5 flex items-center gap-1">
+                                    <Heart size={10} />
+                                    {g.life.staff_name}
+                                  </p>
+                                  <p className="text-xs text-slate-600 leading-snug line-clamp-2">
+                                    {g.life.ratings?.eval ?? "（コメントなし）"}
+                                  </p>
+                                </>
+                              )
+                            ) : (
+                              <span className="text-xs text-slate-300">未記録</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -284,12 +399,17 @@ export default function MonitoringPage() {
                     <ReportBlock icon={AlertCircle} label="課題・支援ポイント" color="amber" content={report.issues} />
                     <ReportBlock icon={Target} label="次期目標案" color="blue" content={report.nextGoal} />
                   </div>
-                  <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex justify-end">
+                  <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
                     <button
-                      onClick={() => generateMonitoringPDF(selectedClient, report.achievement, report.issues, report.nextGoal, "")}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+                      onClick={handleExportPDF}
+                      disabled={pdfGenerating}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 disabled:bg-slate-300 transition-colors"
                     >
-                      <Download size={13} />
+                      {pdfGenerating ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Download size={13} />
+                      )}
                       PDF出力
                     </button>
                   </div>

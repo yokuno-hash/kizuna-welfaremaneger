@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ShieldCheck, CreditCard, LogOut, Brain, Activity, Building2 } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, CreditCard, LogOut, Brain, Activity, Building2, CalendarCheck, FileDown, BarChart3 } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 
 const ADMIN_NAV = [
   { href: "/admin", label: "SaaS管理", icon: ShieldCheck },
   { href: "/facilities", label: "事業所管理", icon: Building2 },
   { href: "/dashboard", label: "施設ダッシュボード", icon: LayoutDashboard },
+  { href: "/attendance", label: "出欠入力", icon: CalendarCheck },
   { href: "/status", label: "入力状況", icon: Activity },
   { href: "/monitoring", label: "モニタリング評価", icon: Brain },
+  { href: "/billing-report", label: "加算・請求集計", icon: BarChart3 },
+  { href: "/documents/generate", label: "帳票自動生成", icon: FileDown },
   { href: "/billing", label: "プラン・課金", icon: CreditCard },
 ];
 

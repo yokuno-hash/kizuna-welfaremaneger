@@ -29,9 +29,8 @@ import {
   Building2,
   ScrollText,
   Download,
+  FileDown,
 } from "lucide-react";
-import { generateMonitoringPDF } from "@/lib/pdf";
-
 // ─────────────────────────────────────────
 // データ定義
 // ─────────────────────────────────────────
@@ -491,9 +490,11 @@ function AIDiarySection() {
   const [diary, setDiary] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [report, setReport] = useState<typeof AI_REPORT | null>(null);
   const [selectedUser, setSelectedUser] = useState<string>("");
   const [clients, setClients] = useState<string[]>([]);
+  const [facilityId, setFacilityId] = useState<string>("");
 
   useEffect(() => {
     const load = async () => {
@@ -502,6 +503,7 @@ function AIDiarySection() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data: profile } = await supabase.from("profiles").select("facility_id").eq("id", user.id).single();
+      setFacilityId(profile?.facility_id ?? "");
       const { data } = await supabase.from("clients").select("name").eq("facility_id", profile?.facility_id).order("name");
       const names = data?.map((c) => c.name) ?? [];
       setClients(names);
@@ -709,18 +711,49 @@ function AIDiarySection() {
               </div>
               <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
                 <button
-                  onClick={() => {
-                    generateMonitoringPDF(
-                      selectedUser || "利用者",
-                      report!.achievement,
-                      report!.issues,
-                      report!.nextGoal,
-                      ""
-                    );
+                  disabled={pdfLoading}
+                  onClick={async () => {
+                    if (!report || !facilityId) return;
+                    setPdfLoading(true);
+                    try {
+                      const today = new Date().toISOString().slice(0, 10);
+                      const sixMonthsAgo = new Date();
+                      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                      const res = await fetch("/api/generate-document", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          type: "monitoring_report",
+                          clientName: selectedUser || "利用者",
+                          facilityId,
+                          periodStart: sixMonthsAgo.toISOString().slice(0, 10),
+                          periodEnd: today,
+                          additionalData: {
+                            preGenerated: {
+                              achievement: report.achievement,
+                              issues: report.issues,
+                              nextGoal: report.nextGoal,
+                            },
+                          },
+                        }),
+                      });
+                      if (!res.ok) throw new Error("PDF生成失敗");
+                      const blob = await res.blob();
+                      const cd = res.headers.get("content-disposition") ?? "";
+                      const m = cd.match(/filename\*=UTF-8''(.+)/);
+                      const filename = m
+                        ? decodeURIComponent(m[1])
+                        : `モニタリング報告書_${selectedUser}.pdf`;
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url; a.download = filename; a.click();
+                      URL.revokeObjectURL(url);
+                    } catch { alert("PDF生成に失敗しました"); }
+                    finally { setPdfLoading(false); }
                   }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 disabled:bg-slate-300 transition-colors"
                 >
-                  <Download size={13} />
+                  {pdfLoading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
                   PDF出力
                 </button>
                 <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors">
@@ -814,8 +847,22 @@ export default function ClientDashboard() {
 
   return (
     <div className="flex min-h-full">
-      {/* 左ナビ */}
-      <nav className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
+      {/* モバイル固定ヘッダー */}
+      <header className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Building2 size={15} className="text-blue-500" />
+          <span className="text-sm font-bold text-slate-800">さくら福祉センター</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500">準備スコア</span>
+          <span className="text-sm font-bold text-blue-600">
+            {Math.round((checked.size / ALL_ITEMS.length) * 100)}%
+          </span>
+        </div>
+      </header>
+
+      {/* 左ナビ（デスクトップのみ） */}
+      <nav className="hidden md:flex w-56 shrink-0 bg-white border-r border-slate-200 flex-col">
         {/* ヘッダー */}
         <div className="px-4 py-5 border-b border-slate-100">
           <div className="flex items-center gap-2 mb-1">
@@ -830,13 +877,20 @@ export default function ClientDashboard() {
         </div>
 
         {/* 日報入力ボタン */}
-        <div className="px-3 pt-3">
+        <div className="px-3 pt-3 space-y-1.5">
           <Link
             href="/diary"
             className="flex items-center gap-2 w-full px-3 py-3 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors"
           >
             <ScrollText size={15} />
             日報を入力する
+          </Link>
+          <Link
+            href="/diary/batch"
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-blue-100 transition-colors"
+          >
+            <Users size={13} />
+            一括入力モード
           </Link>
         </div>
 
@@ -872,6 +926,13 @@ export default function ClientDashboard() {
 
         {/* 設定・ログアウト */}
         <div className="px-3 pb-2 space-y-1">
+          <Link
+            href="/documents/generate"
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-100"
+          >
+            <FileDown size={14} />
+            帳票自動生成
+          </Link>
           <Link
             href="/settings"
             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
@@ -917,7 +978,7 @@ export default function ClientDashboard() {
       </nav>
 
       {/* 右コンテンツ */}
-      <div className="flex-1 overflow-y-auto p-6 md:p-8">
+      <div className="flex-1 overflow-y-auto pt-[57px] md:pt-0 px-4 py-4 md:p-8 pb-20 md:pb-8">
         {/* ページヘッダー */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-0.5">
@@ -936,6 +997,75 @@ export default function ClientDashboard() {
         {menu === "manuals" && <ManualsSection />}
         {menu === "ai-diary" && <AIDiarySection />}
       </div>
+
+      {/* モバイル ボトムナビ */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
+        <div className="flex items-end justify-around h-14 px-2">
+          {/* チェックリスト */}
+          <button
+            onClick={() => setMenu("checklist")}
+            className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
+              menu === "checklist" ? "text-blue-600" : "text-slate-400"
+            }`}
+          >
+            <ClipboardList size={20} />
+            <span className="text-[10px] font-semibold">チェック</span>
+          </button>
+
+          {/* マニュアル */}
+          <button
+            onClick={() => setMenu("manuals")}
+            className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
+              menu === "manuals" ? "text-blue-600" : "text-slate-400"
+            }`}
+          >
+            <BookOpen size={20} />
+            <span className="text-[10px] font-semibold">マニュアル</span>
+          </button>
+
+          {/* 中央FAB: 日報入力 */}
+          <div className="flex flex-col items-center justify-end pb-1.5 flex-1">
+            <div className="flex items-end gap-1 -mt-5">
+              <Link
+                href="/diary"
+                className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center shadow-lg text-white transition-transform active:scale-95"
+              >
+                <ScrollText size={20} />
+              </Link>
+              <Link
+                href="/diary/batch"
+                className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center shadow text-blue-700 transition-transform active:scale-95"
+              >
+                <Users size={14} />
+              </Link>
+            </div>
+            <span className="text-[10px] font-semibold text-blue-600 mt-0.5">日報</span>
+          </div>
+
+          {/* AI日報 */}
+          <button
+            onClick={() => setMenu("ai-diary")}
+            className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
+              menu === "ai-diary" ? "text-blue-600" : "text-slate-400"
+            }`}
+          >
+            <Brain size={20} />
+            <span className="text-[10px] font-semibold">AI日報</span>
+          </button>
+
+          {/* 設定 */}
+          <Link
+            href="/settings"
+            className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-slate-400 transition-colors active:text-blue-600"
+          >
+            <Settings size={20} />
+            <span className="text-[10px] font-semibold">設定</span>
+          </Link>
+        </div>
+      </nav>
     </div>
   );
 }

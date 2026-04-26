@@ -24,14 +24,39 @@ export async function saveDiary(payload: DiaryPayload) {
     .eq("id", user.id)
     .single();
 
+  const facilityId = profile?.facility_id ?? null;
+
+  // daily_attendance に既入力データがあればそちらを優先
+  let attendance = payload.attendance;
+  let breakfast = payload.breakfast;
+  let sleep = payload.sleep;
+
+  if (facilityId) {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: da } = await supabase
+      .from("daily_attendance")
+      .select("attendance, lunch, transport")
+      .eq("facility_id", facilityId)
+      .eq("client_name", payload.clientName)
+      .eq("recorded_date", today)
+      .maybeSingle();
+
+    if (da) {
+      attendance = da.attendance;
+      breakfast = da.lunch;
+      sleep = da.transport;
+    }
+  }
+
   const { error } = await supabase.from("diaries").insert({
     staff_id: user.id,
-    facility_id: profile?.facility_id ?? null,
+    facility_id: facilityId,
     client_name: payload.clientName,
     staff_name: payload.staffName,
-    attendance: payload.attendance,
-    breakfast: payload.breakfast,
-    sleep: payload.sleep,
+    attendance,
+    breakfast,
+    sleep,
+    role: (payload.comments?.role as string) ?? "work",
     ratings: payload.ratings,
     comments: payload.comments,
     recorded_at: new Date().toISOString(),
@@ -39,4 +64,63 @@ export async function saveDiary(payload: DiaryPayload) {
 
   if (error) return { error: error.message };
   return { success: true };
+}
+
+type BatchEntry = {
+  clientName: string;
+  comment: string;
+};
+
+export async function saveDiaryBatch(
+  staffName: string,
+  role: "work" | "life",
+  entries: BatchEntry[]
+) {
+  if (entries.length === 0) return { success: true, count: 0 };
+
+  const supabase = await createClient();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user) return { error: "ログインが必要です" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("facility_id")
+    .eq("id", user.id)
+    .single();
+
+  const facilityId = profile?.facility_id ?? null;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const attendanceMap = new Map<string, { attendance: string; lunch: string; transport: string }>();
+  if (facilityId) {
+    const { data: da } = await supabase
+      .from("daily_attendance")
+      .select("client_name, attendance, lunch, transport")
+      .eq("facility_id", facilityId)
+      .eq("recorded_date", today);
+    (da ?? []).forEach((r) => attendanceMap.set(r.client_name, r));
+  }
+
+  const now = new Date().toISOString();
+  const rows = entries.map((entry) => {
+    const da = attendanceMap.get(entry.clientName);
+    const isAbsent = da?.attendance === "●";
+    return {
+      staff_id: user.id,
+      facility_id: facilityId,
+      client_name: entry.clientName,
+      staff_name: staffName,
+      attendance: da?.attendance ?? "○",
+      breakfast: da?.lunch ?? (isAbsent ? "●" : "○"),
+      sleep: da?.transport ?? (isAbsent ? "●" : "○"),
+      role,
+      ratings: { eval: isAbsent ? "" : entry.comment },
+      comments: { role },
+      recorded_at: now,
+    };
+  });
+
+  const { error } = await supabase.from("diaries").insert(rows);
+  if (error) return { error: error.message };
+  return { success: true, count: rows.length };
 }

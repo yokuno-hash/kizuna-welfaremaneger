@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 export async function POST(request: Request) {
-  const { facilityName, email, password } = await request.json();
+  const { facilityName, serviceType, email, password } = await request.json();
 
   if (!facilityName || !email || !password) {
     return Response.json({ error: "全項目を入力してください" }, { status: 400 });
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     // ① 事業所を作成
     const { data: facility, error: facilityError } = await supabase
       .from("facilities")
-      .insert({ name: facilityName })
+      .insert({ name: facilityName, service_type: serviceType ?? 'b_type' })
       .select()
       .single();
 

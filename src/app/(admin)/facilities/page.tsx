@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { SERVICE_TYPE_LABELS, type ServiceType } from "@/data/service-formats";
 import {
   Building2,
   UserPlus,
@@ -14,6 +15,7 @@ import {
 type Facility = {
   id: string;
   name: string;
+  service_type: ServiceType;
   created_at: string;
 };
 
@@ -26,6 +28,7 @@ export default function FacilitiesPage() {
 
   // フォーム
   const [facilityName, setFacilityName] = useState("");
+  const [serviceType, setServiceType] = useState<ServiceType>("b_type");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -39,7 +42,7 @@ export default function FacilitiesPage() {
   const fetchFacilities = async () => {
     const { data } = await supabase
       .from("facilities")
-      .select("id, name, created_at")
+      .select("id, name, service_type, created_at")
       .order("created_at", { ascending: false });
     setFacilities(data ?? []);
     setLoading(false);
@@ -55,11 +58,11 @@ export default function FacilitiesPage() {
       const res = await fetch("/api/create-facility", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facilityName: facilityName.trim(), email: email.trim(), password }),
+        body: JSON.stringify({ facilityName: facilityName.trim(), serviceType, email: email.trim(), password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setFacilityName(""); setEmail(""); setPassword("");
+      setFacilityName(""); setServiceType("b_type"); setEmail(""); setPassword("");
       showToast(`「${facilityName}」を追加しました`);
       await fetchFacilities();
     } catch (e: unknown) {
@@ -93,7 +96,7 @@ export default function FacilitiesPage() {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
         <h3 className="text-sm font-bold text-slate-700">新規事業所を追加</h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-600">事業所名</label>
             <input
@@ -103,6 +106,18 @@ export default function FacilitiesPage() {
               placeholder="例：さくら福祉センター"
               className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-600">事業種別</label>
+            <select
+              value={serviceType}
+              onChange={(e) => setServiceType(e.target.value as ServiceType)}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              {(Object.entries(SERVICE_TYPE_LABELS) as [ServiceType, string][]).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-600">ログイン用メールアドレス</label>
@@ -173,7 +188,7 @@ export default function FacilitiesPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-800">{f.name}</p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    登録日: {new Date(f.created_at).toLocaleDateString("ja-JP")}
+                    {SERVICE_TYPE_LABELS[f.service_type] ?? f.service_type} ・ 登録日: {new Date(f.created_at).toLocaleDateString("ja-JP")}
                   </p>
                 </div>
               </li>

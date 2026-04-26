@@ -1,22 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Send,
   ChevronRight,
   ChevronLeft,
   Sparkles,
-  User,
-  Users,
-  ClipboardList,
   Loader2,
+  AlertCircle,
+  MessageCircle,
 } from "lucide-react";
-import { saveDiary } from "@/app/actions/diary";
-import { getAttendanceForClient, type AttendanceRecord } from "@/app/actions/attendance";
-import { createClient } from "@/lib/supabase/client";
 import { B_TYPE_FORMAT, getServiceFormat, type ServiceFormat } from "@/data/service-formats";
+
+// ────────────────────────────────────────────
+// 定数・型
+// ────────────────────────────────────────────
 
 const LUNCH = [
   { value: "○", label: "○ 加算対象", color: "emerald" },
@@ -29,9 +28,6 @@ const TRANSPORT = [
   { value: "●", label: "● なし", color: "slate" },
 ];
 
-type Role = "work" | "life";
-type Step = "role" | "staff" | "client" | "basic" | "eval" | "done";
-
 const colorMap: Record<string, { bg: string; border: string; text: string; pill: string }> = {
   emerald: { bg: "bg-emerald-50", border: "border-emerald-400", text: "text-emerald-700", pill: "bg-emerald-500" },
   amber:   { bg: "bg-amber-50",   border: "border-amber-400",   text: "text-amber-700",   pill: "bg-amber-500" },
@@ -40,23 +36,38 @@ const colorMap: Record<string, { bg: string; border: string; text: string; pill:
   blue:    { bg: "bg-blue-50",    border: "border-blue-400",    text: "text-blue-700",     pill: "bg-blue-500" },
 };
 
-// ─────────────────────────────────────────
-// ステップインジケーター
-// ─────────────────────────────────────────
+type Step = "client" | "basic" | "eval" | "done";
 
-const STEPS: { key: Step; label: string }[] = [
-  { key: "role", label: "役職" },
-  { key: "staff", label: "記録者" },
+type AttendanceRecord = {
+  attendance: string;
+  lunch: string;
+  transport: string;
+};
+
+type StaffInfo = {
+  staffName: string;
+  role: string;
+  facilityId: string;
+  facilityName: string;
+  serviceType: string;
+  clients: string[];
+};
+
+// ────────────────────────────────────────────
+// ステップインジケーター（3ステップ）
+// ────────────────────────────────────────────
+
+const LIFF_STEPS = [
   { key: "client", label: "利用者" },
-  { key: "basic", label: "基本情報" },
-  { key: "eval", label: "評価" },
+  { key: "basic",  label: "基本情報" },
+  { key: "eval",   label: "評価" },
 ];
 
 function StepBar({ current }: { current: Step }) {
-  const idx = STEPS.findIndex((s) => s.key === current);
+  const idx = LIFF_STEPS.findIndex((s) => s.key === current);
   return (
     <div className="flex items-center gap-1">
-      {STEPS.map((s, i) => (
+      {LIFF_STEPS.map((s, i) => (
         <div key={s.key} className="flex items-center gap-1">
           <div
             className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
@@ -69,7 +80,7 @@ function StepBar({ current }: { current: Step }) {
           >
             {i < idx ? <CheckCircle2 size={13} /> : i + 1}
           </div>
-          {i < STEPS.length - 1 && (
+          {i < LIFF_STEPS.length - 1 && (
             <div className={`h-0.5 w-4 rounded ${i < idx ? "bg-emerald-400" : "bg-slate-200"}`} />
           )}
         </div>
@@ -78,14 +89,20 @@ function StepBar({ current }: { current: Step }) {
   );
 }
 
-// ─────────────────────────────────────────
+// ────────────────────────────────────────────
 // 選択ボタン
-// ─────────────────────────────────────────
+// ────────────────────────────────────────────
 
 function OptionBtn({
-  selected, onClick, children, color = "blue",
+  selected,
+  onClick,
+  children,
+  color = "blue",
 }: {
-  selected: boolean; onClick: () => void; children: React.ReactNode; color?: string;
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  color?: string;
 }) {
   const c = colorMap[color] ?? colorMap.blue;
   return (
@@ -96,9 +113,11 @@ function OptionBtn({
         selected ? `${c.bg} ${c.border}` : "bg-white border-slate-100 hover:border-slate-200"
       }`}
     >
-      <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-        selected ? `${c.pill} border-transparent` : "border-slate-300"
-      }`}>
+      <span
+        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+          selected ? `${c.pill} border-transparent` : "border-slate-300"
+        }`}
+      >
         {selected && <span className="w-2 h-2 rounded-full bg-white" />}
       </span>
       <span className={`text-sm font-semibold ${selected ? c.text : "text-slate-700"}`}>
@@ -109,18 +128,27 @@ function OptionBtn({
   );
 }
 
-// ─────────────────────────────────────────
+// ────────────────────────────────────────────
 // メインページ
-// ─────────────────────────────────────────
+// ────────────────────────────────────────────
 
-export default function DiaryPage() {
+export default function LiffDiaryPage() {
   const today = new Date().toLocaleDateString("ja-JP", {
-    year: "numeric", month: "long", day: "numeric", weekday: "short",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
   });
 
-  const [step, setStep] = useState<Step>("role");
-  const [role, setRole] = useState<Role | "">("");
-  const [staffName, setStaffName] = useState("");
+  // LIFF状態
+  const [liffState, setLiffState] = useState<"loading" | "registering" | "ready" | "error">("loading");
+  const [liffError, setLiffError] = useState("");
+  const [lineUserId, setLineUserId] = useState("");
+  const [staffInfo, setStaffInfo] = useState<StaffInfo | null>(null);
+  const [serviceFormat, setServiceFormat] = useState<ServiceFormat>(B_TYPE_FORMAT);
+
+  // フォーム状態
+  const [step, setStep] = useState<Step>("client");
   const [clientName, setClientName] = useState("");
   const [attendance, setAttendance] = useState("");
   const [lunch, setLunch] = useState("");
@@ -128,102 +156,154 @@ export default function DiaryPage() {
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
-  const [clients, setClients] = useState<string[]>([]);
-  const [loadingClients, setLoadingClients] = useState(true);
-  const [staffByRole, setStaffByRole] = useState<Record<"work" | "life", string[]>>({ work: [], life: [] });
   const [adminAttendance, setAdminAttendance] = useState<AttendanceRecord | null>(null);
   const [loadingAdminAttendance, setLoadingAdminAttendance] = useState(false);
-  const [serviceFormat, setServiceFormat] = useState<ServiceFormat>(B_TYPE_FORMAT);
   const [additionalValues, setAdditionalValues] = useState<Record<string, string>>({});
 
+  // LIFF初期化
   useEffect(() => {
-    const fetchData = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoadingClients(false); return; }
+    const init = async () => {
+      try {
+        const liff = (await import("@line/liff")).default;
+        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! });
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("facility_id, facilities(service_type)")
-        .eq("id", user.id)
-        .single();
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
 
-      const facilityId = profile?.facility_id;
-      const serviceType = (profile?.facilities as { service_type?: string } | null)?.service_type ?? 'b_type';
-      setServiceFormat(getServiceFormat(serviceType));
+        const profile = await liff.getProfile();
+        const userId = profile.userId;
+        setLineUserId(userId);
 
-      const [{ data: clientData }, { data: staffData }] = await Promise.all([
-        supabase.from("clients").select("name").eq("facility_id", facilityId).order("name"),
-        supabase.from("staff").select("name, role").eq("facility_id", facilityId).order("name"),
-      ]);
+        // 登録トークンの確認
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get("token");
 
-      setClients(clientData?.map((c) => c.name) ?? []);
-      setStaffByRole({
-        work: staffData?.filter((s) => s.role === "work").map((s) => s.name) ?? [],
-        life: staffData?.filter((s) => s.role === "life").map((s) => s.name) ?? [],
-      });
-      setLoadingClients(false);
+        if (token) {
+          setLiffState("registering");
+          const res = await fetch("/api/liff/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, lineUserId: userId }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setLiffError(
+              data.error === "invalid_token"
+                ? "このQRコードは無効または期限切れです。管理者に再発行を依頼してください。"
+                : "LINE連携の登録に失敗しました。"
+            );
+            setLiffState("error");
+            return;
+          }
+        }
+
+        // スタッフ情報取得
+        const authRes = await fetch(`/api/liff/auth?lineUserId=${userId}`);
+        const authData = await authRes.json();
+
+        if (!authRes.ok) {
+          setLiffError(
+            authData.error === "not_registered"
+              ? "このLINEアカウントは連携されていません。管理者に設定を依頼してください。"
+              : "認証に失敗しました。"
+          );
+          setLiffState("error");
+          return;
+        }
+
+        setStaffInfo(authData);
+        setServiceFormat(getServiceFormat(authData.serviceType));
+        setLiffState("ready");
+      } catch {
+        setLiffError("LIFFの初期化に失敗しました。LINEアプリから開いてください。");
+        setLiffState("error");
+      }
     };
 
-    fetchData();
+    init();
   }, []);
 
+  // 利用者選択時に出欠情報を取得
   useEffect(() => {
-    if (!clientName) { setAdminAttendance(null); return; }
-    const today = new Date().toISOString().slice(0, 10);
+    if (!clientName || !lineUserId) {
+      setAdminAttendance(null);
+      return;
+    }
+    const date = new Date().toISOString().slice(0, 10);
     setLoadingAdminAttendance(true);
-    getAttendanceForClient(clientName, today).then(({ data }) => {
-      setAdminAttendance(data);
-      if (data) {
-        setAttendance(data.attendance);
-        setLunch(data.lunch);
-        setTransport(data.transport);
-      }
-      setLoadingAdminAttendance(false);
-    });
-  }, [clientName]);
+
+    fetch(
+      `/api/liff/attendance?lineUserId=${lineUserId}&clientName=${encodeURIComponent(clientName)}&date=${date}`
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        setAdminAttendance(data.attendance ?? null);
+        if (data.attendance) {
+          setAttendance(data.attendance.attendance);
+          setLunch(data.attendance.lunch);
+          setTransport(data.attendance.transport);
+        } else {
+          setAttendance("");
+          setLunch("");
+          setTransport("");
+        }
+        setLoadingAdminAttendance(false);
+      })
+      .catch(() => setLoadingAdminAttendance(false));
+  }, [clientName, lineUserId]);
 
   const isAbsent = attendance === "●";
 
   const canNext: Record<Step, boolean> = {
-    role:   role !== "",
-    staff:  staffName !== "",
     client: clientName !== "",
-    basic:  adminAttendance != null
-              ? true
-              : attendance !== "" && (isAbsent || (lunch !== "" && transport !== "")),
-    eval:   isAbsent || comment !== "",
-    done:   true,
+    basic:
+      adminAttendance != null
+        ? true
+        : attendance !== "" && (isAbsent || (lunch !== "" && transport !== "")),
+    eval: isAbsent || comment !== "",
+    done: true,
   };
 
+  const STEPS: Step[] = ["client", "basic", "eval", "done"];
+
   const next = () => {
-    const order: Step[] = ["role", "staff", "client", "basic", "eval", "done"];
-    const idx = order.indexOf(step);
-    if (idx < order.length - 1) setStep(order[idx + 1]);
+    const idx = STEPS.indexOf(step);
+    if (idx < STEPS.length - 1) setStep(STEPS[idx + 1]);
   };
 
   const back = () => {
-    const order: Step[] = ["role", "staff", "client", "basic", "eval", "done"];
-    const idx = order.indexOf(step);
-    if (idx > 0) setStep(order[idx - 1]);
+    const idx = STEPS.indexOf(step);
+    if (idx > 0) setStep(STEPS[idx - 1]);
   };
 
   const addTemplate = (text: string) => {
-    setComment((prev) => prev ? prev + "。" + text : text);
+    setComment((prev) => (prev ? prev + "。" + text : text));
   };
 
   const handleSubmit = async () => {
+    if (!lineUserId) return;
     setLoading(true);
     try {
-      await saveDiary({
-        clientName,
-        staffName,
-        attendance,
-        breakfast: lunch,
-        sleep: transport,
-        ratings: { ...additionalValues, eval: comment },
-        comments: { role: role as string },
+      const res = await fetch("/api/liff/save-diary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineUserId,
+          clientName,
+          attendance,
+          lunch,
+          transport,
+          comment,
+          additionalValues,
+        }),
       });
+      if (!res.ok) {
+        const data = await res.json();
+        alert("保存に失敗しました: " + (data.error ?? ""));
+        return;
+      }
       setDoneCount((n) => n + 1);
       setStep("done");
     } catch {
@@ -244,30 +324,55 @@ export default function DiaryPage() {
     setStep("client");
   };
 
-  const resetAll = () => {
-    setRole("");
-    setStaffName("");
-    setClientName("");
-    setAttendance("");
-    setLunch("");
-    setTransport("");
-    setComment("");
-    setAdditionalValues({});
-    setAdminAttendance(null);
-    setDoneCount(0);
-    setStep("role");
+  const closeLiff = async () => {
+    try {
+      const liff = (await import("@line/liff")).default;
+      if (liff.isInClient()) {
+        liff.closeWindow();
+      }
+    } catch { /* ignore */ }
   };
+
+  // ── ローディング・登録中 ──
+  if (liffState === "loading" || liffState === "registering") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white">
+        <Loader2 size={32} className="animate-spin text-green-500 mb-4" />
+        <p className="text-sm text-slate-600 font-medium">
+          {liffState === "registering" ? "LINE連携を設定中..." : "読み込み中..."}
+        </p>
+      </div>
+    );
+  }
+
+  // ── エラー ──
+  if (liffState === "error") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white">
+        <AlertCircle size={40} className="text-red-400 mb-4" />
+        <p className="text-base font-bold text-slate-800 mb-2">エラーが発生しました</p>
+        <p className="text-sm text-slate-500 leading-relaxed">{liffError}</p>
+      </div>
+    );
+  }
+
+  const activeRole = staffInfo
+    ? serviceFormat.roles.find((r) => r.id === staffInfo.role)
+    : null;
+  const templates = activeRole?.templates ?? null;
 
   // ── 完了画面 ──
   if (step === "done") {
     return (
-      <div className="min-h-full flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white">
         <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-5">
           <CheckCircle2 size={40} className="text-emerald-500" />
         </div>
         <h2 className="text-xl font-bold text-slate-800 mb-1">送信完了</h2>
         <p className="text-sm text-slate-500 mb-1">{clientName}さんの日報を保存しました</p>
-        <p className="text-xs text-slate-400 mb-2">{today}　記録者: {staffName}</p>
+        <p className="text-xs text-slate-400 mb-2">
+          {today}　記録者: {staffInfo?.staffName}
+        </p>
         <span className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1 rounded-full mb-8">
           本日 {doneCount}名 完了
         </span>
@@ -279,18 +384,16 @@ export default function DiaryPage() {
             次の利用者を入力
           </button>
           <button
-            onClick={resetAll}
-            className="w-full py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm"
+            onClick={closeLiff}
+            className="w-full py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
           >
-            最初に戻る
+            <MessageCircle size={16} />
+            LINEに戻る
           </button>
         </div>
       </div>
     );
   }
-
-  const activeRole = role ? serviceFormat.roles.find((r) => r.id === role) : null;
-  const templates = activeRole?.templates ?? null;
 
   return (
     <div className="w-full px-4 pt-5 pb-32 md:max-w-lg md:mx-auto">
@@ -299,93 +402,21 @@ export default function DiaryPage() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h1 className="text-base font-bold text-slate-800 flex items-center gap-2">
-              <ClipboardList size={16} className="text-blue-500" />
-              日報入力
+              <MessageCircle size={16} className="text-green-500" />
+              LINE 日報入力
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">{today}</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {today}　{staffInfo?.staffName}（{activeRole?.label ?? staffInfo?.role}）
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            {doneCount > 0 && (
-              <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">
-                {doneCount}名完了
-              </span>
-            )}
-            <Link
-              href="/diary/batch"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition-colors"
-            >
-              <Users size={12} />
-              一括入力
-            </Link>
-          </div>
+          {doneCount > 0 && (
+            <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">
+              {doneCount}名完了
+            </span>
+          )}
         </div>
         <StepBar current={step} />
       </div>
-
-      {/* ── Step: 役職選択 ── */}
-      {step === "role" && (
-        <div className="space-y-3">
-          <div className="mb-4">
-            <h2 className="text-lg font-bold text-slate-800">あなたの役職は？</h2>
-            <p className="text-xs text-slate-500 mt-0.5">評価内容が役職に合わせて変わります</p>
-          </div>
-          {serviceFormat.roles.map((r, i) => {
-            const isSelected = role === r.id;
-            const colorClass = i === 0
-              ? { bg: "bg-blue-50", border: "border-blue-500", icon: "bg-blue-500", check: "text-blue-500" }
-              : { bg: "bg-indigo-50", border: "border-indigo-500", icon: "bg-indigo-500", check: "text-indigo-500" };
-            const Icon = i === 0 ? ClipboardList : Users;
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => { setRole(r.id as Role); setStaffName(""); }}
-                className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 transition-all active:scale-[0.98] ${
-                  isSelected ? `${colorClass.bg} ${colorClass.border}` : "bg-white border-slate-100"
-                }`}
-              >
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
-                  isSelected ? colorClass.icon : "bg-slate-100"
-                }`}>
-                  <Icon size={20} className={isSelected ? "text-white" : "text-slate-500"} />
-                </div>
-                <div className="text-left">
-                  <p className="font-bold text-slate-800">{r.label}</p>
-                  <p className="text-xs text-slate-500">{r.description}</p>
-                </div>
-                {isSelected && <CheckCircle2 size={18} className={`${colorClass.check} ml-auto`} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Step: 記録者選択 ── */}
-      {step === "staff" && role && (
-        <div className="space-y-2">
-          <div className="mb-4">
-            <h2 className="text-lg font-bold text-slate-800">あなたの名前は？</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {activeRole?.label ?? role}として記録します
-            </p>
-          </div>
-          {loadingClients ? (
-            <div className="flex justify-center py-8">
-              <Loader2 size={22} className="animate-spin text-slate-300" />
-            </div>
-          ) : staffByRole[role as Role].length === 0 ? (
-            <p className="text-center py-8 text-slate-400 text-sm">
-              指導員が登録されていません。設定から追加してください。
-            </p>
-          ) : (
-            staffByRole[role as Role].map((name) => (
-              <OptionBtn key={name} selected={staffName === name} onClick={() => setStaffName(name)}>
-                {name}
-              </OptionBtn>
-            ))
-          )}
-        </div>
-      )}
 
       {/* ── Step: 利用者選択 ── */}
       {step === "client" && (
@@ -394,17 +425,15 @@ export default function DiaryPage() {
             <h2 className="text-lg font-bold text-slate-800">誰を記録しますか？</h2>
             <p className="text-xs text-slate-500 mt-0.5">利用者を1名選んでください</p>
           </div>
-          {loadingClients ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="animate-spin text-slate-300" />
-            </div>
-          ) : clients.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 text-sm">
-              利用者が登録されていません。<br />管理者に追加を依頼してください。
-            </div>
+          {(staffInfo?.clients.length ?? 0) === 0 ? (
+            <p className="text-center py-12 text-slate-400 text-sm">
+              利用者が登録されていません。
+              <br />
+              管理者に追加を依頼してください。
+            </p>
           ) : (
             <div className="grid grid-cols-2 gap-2">
-              {clients.map((name) => (
+              {staffInfo?.clients.map((name) => (
                 <button
                   key={name}
                   type="button"
@@ -436,7 +465,6 @@ export default function DiaryPage() {
               <Loader2 size={22} className="animate-spin text-slate-300" />
             </div>
           ) : adminAttendance ? (
-            /* 管理者入力済み：読み取り専用表示 */
             <div className="space-y-4">
               <div className="bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-3 flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-indigo-500 shrink-0" />
@@ -467,7 +495,6 @@ export default function DiaryPage() {
               )}
             </div>
           ) : (
-            /* 未入力：従来通り入力可能 */
             <>
               {/* 出欠 */}
               <div>
@@ -501,7 +528,6 @@ export default function DiaryPage() {
                 </div>
               </div>
 
-              {/* 欠席以外のみ表示 */}
               {!isAbsent && (
                 <>
                   {serviceFormat.hasLunch && (
@@ -558,7 +584,6 @@ export default function DiaryPage() {
                     </div>
                   )}
 
-                  {/* 事業種別固有の追加フィールド */}
                   {serviceFormat.additionalFields?.map((field) => (
                     <div key={field.id}>
                       <p className="text-sm font-bold text-slate-700 mb-2">{field.label}</p>
@@ -568,8 +593,9 @@ export default function DiaryPage() {
                           min="0"
                           step="0.5"
                           value={additionalValues[field.id] ?? ""}
-                          onChange={(e) => setAdditionalValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
-                          placeholder="例: 6"
+                          onChange={(e) =>
+                            setAdditionalValues((prev) => ({ ...prev, [field.id]: e.target.value }))
+                          }
                           className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                         />
                       )}
@@ -577,7 +603,9 @@ export default function DiaryPage() {
                         <input
                           type="text"
                           value={additionalValues[field.id] ?? ""}
-                          onChange={(e) => setAdditionalValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                          onChange={(e) =>
+                            setAdditionalValues((prev) => ({ ...prev, [field.id]: e.target.value }))
+                          }
                           className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                         />
                       )}
@@ -589,7 +617,9 @@ export default function DiaryPage() {
                               <button
                                 key={opt.value}
                                 type="button"
-                                onClick={() => setAdditionalValues((prev) => ({ ...prev, [field.id]: opt.value }))}
+                                onClick={() =>
+                                  setAdditionalValues((prev) => ({ ...prev, [field.id]: opt.value }))
+                                }
                                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 transition-all ${
                                   sel ? "bg-blue-50 border-blue-400" : "bg-white border-slate-100"
                                 }`}
@@ -628,7 +658,6 @@ export default function DiaryPage() {
             </p>
           </div>
 
-          {/* 定型文（ポジティブ） */}
           <div>
             <p className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1">
               <Sparkles size={12} />
@@ -686,7 +715,6 @@ export default function DiaryPage() {
             </div>
           </div>
 
-          {/* 入力欄 */}
           <div>
             <p className="text-xs font-bold text-slate-600 mb-2">コメント（タップで追記・直接編集可）</p>
             <textarea
@@ -712,20 +740,20 @@ export default function DiaryPage() {
       {step === "eval" && isAbsent && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-            <User size={28} className="text-slate-400" />
+            <span className="text-2xl">😔</span>
           </div>
           <p className="text-slate-600 font-semibold">{clientName}さんは欠席</p>
           <p className="text-sm text-slate-400 mt-1">評価入力は不要です。このまま送信してください。</p>
         </div>
       )}
 
-      {/* ── ナビゲーションボタン ── */}
+      {/* ── ナビゲーション ── */}
       <div
         className="fixed bottom-0 left-0 right-0 px-4 pt-4 bg-white border-t border-slate-200 shadow-lg"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 1rem)" }}
       >
         <div className="w-full md:max-w-lg md:mx-auto flex gap-3">
-          {step !== "role" && (
+          {step !== "client" && (
             <button
               type="button"
               onClick={back}

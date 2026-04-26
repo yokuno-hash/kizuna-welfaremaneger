@@ -161,8 +161,8 @@ export default function ClientDashboardPage() {
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${style.badge}`}>{style.icon} {style.label}</span>
                     <span className="text-xs text-slate-400 ml-auto">{notif.sentAt.replace("T", " ").slice(0, 16)}</span>
                   </div>
-                  <p className="text-sm font-semibold text-slate-800 truncate">{notif.title}</p>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{notif.body}</p>
+                  <p className="text-sm font-semibold text-slate-800 break-words">{notif.title}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed break-words line-clamp-2">{notif.body}</p>
                 </div>
               </div>
             );
