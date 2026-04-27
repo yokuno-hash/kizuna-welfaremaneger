@@ -26,18 +26,33 @@ export async function proxy(request: NextRequest) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
+  const { pathname } = request.nextUrl;
 
   // 未ログインかつログインページ以外にアクセスしたらリダイレクト
-  if (!user && request.nextUrl.pathname !== "/login") {
+  if (!user && pathname !== "/login") {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  // ログイン済みでログインページにアクセスしたらダッシュボードへ
-  if (user && request.nextUrl.pathname === "/login") {
+  if (user) {
     const role = user.user_metadata?.role ?? "facility";
-    return NextResponse.redirect(
-      new URL(role === "admin" ? "/admin" : "/", request.url)
-    );
+
+    // ログイン済みでログインページにアクセスしたらロール別トップへ
+    if (pathname === "/login") {
+      return NextResponse.redirect(
+        new URL(role === "admin" ? "/admin" : "/", request.url)
+      );
+    }
+
+    // admin が / にアクセスしたら /admin へ（戻るボタン対策）
+    if (role === "admin" && pathname === "/") {
+      return NextResponse.redirect(new URL("/admin", request.url));
+    }
+
+    // facility ユーザーが admin 専用ページにアクセスしたら / へ
+    const adminOnlyPaths = ["/admin", "/facilities", "/clients", "/status"];
+    if (role === "facility" && adminOnlyPaths.some((p) => pathname.startsWith(p))) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
   }
 
   return supabaseResponse;
