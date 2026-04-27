@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   FileText,
@@ -109,6 +109,7 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 
 export default function GenerateDocumentPage() {
   const supabase = createClient();
+  const router = useRouter();
 
   const [facilityId, setFacilityId] = useState<string>("");
   const [clients, setClients] = useState<string[]>([]);
@@ -259,13 +260,13 @@ export default function GenerateDocumentPage() {
 
       {/* ヘッダー */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-4">
-        <Link
-          href="/"
+        <button
+          onClick={() => router.back()}
           className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-xs font-semibold transition-colors"
         >
           <ChevronLeft size={15} />
-          ダッシュボードへ
-        </Link>
+          戻る
+        </button>
         <div className="h-4 w-px bg-slate-200" />
         <div className="flex items-center gap-2">
           <FileText size={16} className="text-blue-500" />

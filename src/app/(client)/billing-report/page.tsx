@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { calcBilling, exportBillingCSV, type ClientBillingSummary } from "@/lib/billing-calc";
 import {
@@ -16,6 +16,7 @@ import {
 
 export default function BillingReportPage() {
   const supabase = createClient();
+  const router = useRouter();
 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -124,13 +125,13 @@ export default function BillingReportPage() {
     <div className="min-h-screen bg-slate-50 pb-12">
       {/* ヘッダー */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-4">
-        <Link
-          href="/"
+        <button
+          onClick={() => router.back()}
           className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-xs font-semibold transition-colors"
         >
           <ChevronLeft size={15} />
           戻る
-        </Link>
+        </button>
         <div className="h-4 w-px bg-slate-200" />
         <div className="flex items-center gap-2">
           <BarChart3 size={16} className="text-emerald-500" />
