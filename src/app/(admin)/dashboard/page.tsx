@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { lineNotifications, type LineNotificationType } from "@/data/mock";
 import {
   CheckCircle2,
   Circle,
@@ -50,13 +49,6 @@ function DaysBadge({ days }: { days: number | null }) {
   if (days <= 7) return <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">残{days}日</span>;
   return <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">残{days}日</span>;
 }
-
-// ---- LINE通知スタイル ----
-const notifStyles: Record<LineNotificationType, { border: string; badge: string; label: string; icon: string }> = {
-  info:    { border: "border-blue-200",   badge: "bg-blue-100 text-blue-700",     label: "お知らせ", icon: "ℹ️" },
-  warning: { border: "border-yellow-300", badge: "bg-yellow-100 text-yellow-700", label: "警告",     icon: "⚠️" },
-  urgent:  { border: "border-red-300",    badge: "bg-red-100 text-red-700",       label: "緊急",     icon: "🚨" },
-};
 
 const CATEGORIES = ["書類整備", "運営管理", "記録管理", "人事・労務", "当日準備", "その他"];
 
@@ -142,33 +134,6 @@ export default function ClientDashboardPage() {
         <h2 className="text-2xl font-bold text-slate-800">施設管理ダッシュボード</h2>
         <p className="text-sm text-slate-500 mt-1">運営指導対応の進捗と最新通知を確認できます</p>
       </div>
-
-      {/* LINE通知 */}
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">💬</span>
-          <h3 className="font-semibold text-slate-700">LINEプッシュ通知</h3>
-          <span className="ml-auto text-xs text-slate-400">シミュレーション</span>
-        </div>
-        <div className="space-y-3">
-          {lineNotifications.map((notif) => {
-            const style = notifStyles[notif.type];
-            return (
-              <div key={notif.id} className={`bg-white rounded-xl border-l-4 ${style.border} shadow-sm px-5 py-4 flex gap-4`}>
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white text-lg font-bold shadow-sm">L</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${style.badge}`}>{style.icon} {style.label}</span>
-                    <span className="text-xs text-slate-400 ml-auto">{notif.sentAt.replace("T", " ").slice(0, 16)}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-800 break-words">{notif.title}</p>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed break-words line-clamp-2">{notif.body}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
 
       {/* 完了率 */}
       <section className="bg-white rounded-xl shadow-sm p-6">

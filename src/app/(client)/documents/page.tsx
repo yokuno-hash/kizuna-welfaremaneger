@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { documents } from "@/data/mock";
-import { Upload, FileText, Download, Trash2, CheckCircle2, Loader2 } from "lucide-react";
+import { Upload, FileText, Download, CheckCircle2, Loader2, FolderOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function DocumentsPage() {
@@ -130,52 +129,14 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      {/* モックデータ（既存書類） */}
-      <div>
-        <h3 className="text-sm font-bold text-slate-600 mb-3">既存書類</h3>
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="px-6 py-3 text-left">ファイル名</th>
-                <th className="px-6 py-3 text-left">カテゴリ</th>
-                <th className="px-6 py-3 text-left">更新日</th>
-                <th className="px-6 py-3 text-left">サイズ</th>
-                <th className="px-6 py-3 text-left">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {documents.map((doc) => (
-                <tr key={doc.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{doc.icon}</span>
-                      <span className="font-medium text-slate-800">{doc.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
-                      {doc.category}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-slate-500">{doc.updatedAt}</td>
-                  <td className="px-6 py-4 text-slate-500">{doc.size}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <button className="text-blue-600 hover:underline text-xs flex items-center gap-1">
-                        <Download size={13} /> DL
-                      </button>
-                      <button className="text-red-400 hover:text-red-600 text-xs flex items-center gap-1">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* アップロードがない場合の空状態 */}
+      {uploadedFiles.length === 0 && (
+        <div className="bg-white rounded-xl shadow-sm py-20 text-center">
+          <FolderOpen size={36} className="mx-auto mb-3 text-slate-200" />
+          <p className="text-sm text-slate-400 font-medium">書類がまだアップロードされていません</p>
+          <p className="text-xs text-slate-300 mt-1">上の「書類をアップロード」から追加してください</p>
         </div>
-      </div>
+      )}
     </div>
   );
 }
